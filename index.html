@@ -1,0 +1,155 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <title>Manhole IMU Monitor</title>
+
+  <!-- 🔑 IMPORT MAP FIX -->
+  <script type="importmap">
+  {
+    "imports": {
+      "three": "https://unpkg.com/three@0.160.0/build/three.module.js",
+      "three/addons/": "https://unpkg.com/three@0.160.0/examples/jsm/"
+    }
+  }
+  </script>
+
+  <style>
+    body {
+      margin: 0;
+      overflow: hidden;
+      background: #0f172a;
+      color: white;
+      font-family: Arial, sans-serif;
+    }
+
+    #ui {
+      position: absolute;
+      top: 10px;
+      left: 10px;
+      background: rgba(0,0,0,0.6);
+      padding: 10px;
+      border-radius: 8px;
+      font-size: 14px;
+    }
+
+    #status {
+      color: red;
+      font-weight: bold;
+    }
+  </style>
+</head>
+
+<body>
+
+<div id="ui">
+  Status: <span id="status">OFFLINE</span>
+  <pre id="output">Waiting...</pre>
+</div>
+
+<script src="https://unpkg.com/mqtt/dist/mqtt.min.js"></script>
+
+<script type="module">
+
+import * as THREE from "three";
+import { GLTFLoader } from "three/addons/loaders/GLTFLoader.js";
+
+  //  MQTT CONFIG
+
+const MQTT_URL =
+  "wss://acb78c56e1724bec8438e8707d372406.s1.eu.hivemq.cloud:8884/mqtt";
+
+const MQTT_OPTIONS = {
+  username: "DTech",
+  password: "DTech123",
+  clean: true,
+  connectTimeout: 4000
+};
+
+const TOPIC = "manhole/data";
+let lastMessageTime = 0;
+
+  //  THREE.JS SETUP
+
+   let scene, camera, renderer, manhole;
+
+initThree();
+loadModel();
+animate();
+
+function initThree() {
+  scene = new THREE.Scene();
+  scene.background = new THREE.Color(0x0f172a);
+
+  camera = new THREE.PerspectiveCamera(60, window.innerWidth/window.innerHeight, 0.1, 100);
+  camera.position.set(0, 1.5, 5);
+
+  renderer = new THREE.WebGLRenderer({ antialias: true });
+  renderer.setSize(window.innerWidth, window.innerHeight);
+  document.body.appendChild(renderer.domElement);
+
+  scene.add(new THREE.AmbientLight(0xffffff, 1.2));
+
+  const light = new THREE.DirectionalLight(0xffffff, 1);
+  light.position.set(3,5,2);
+  scene.add(light);
+
+  window.addEventListener("resize", () => {
+    camera.aspect = window.innerWidth/window.innerHeight;
+    camera.updateProjectionMatrix();
+    renderer.setSize(window.innerWidth, window.innerHeight);
+  });
+}
+
+function loadModel() {
+  const loader = new GLTFLoader();
+  loader.load("./manhole.glb", (gltf) => {
+    manhole = gltf.scene;
+    manhole.scale.setScalar(0.2);
+    scene.add(manhole);
+  });
+}
+
+  //  MQTT
+
+const client = mqtt.connect(MQTT_URL, MQTT_OPTIONS);
+
+client.on("connect", () => client.subscribe(TOPIC));
+
+client.on("message", (_, message) => {
+  lastMessageTime = Date.now();
+  document.getElementById("status").style.color = "lime";
+  document.getElementById("status").innerText = "ONLINE";
+
+  const data = JSON.parse(message.toString());
+  document.getElementById("output").innerText =
+    JSON.stringify(data, null, 2);
+
+  if (!manhole) return;
+
+  manhole.rotation.set(
+    THREE.MathUtils.degToRad(data.pitch),
+    THREE.MathUtils.degToRad(data.yaw),
+    THREE.MathUtils.degToRad(data.roll)
+  );
+});
+
+
+
+  //  OFFLINE DETECTION
+
+setInterval(() => {
+  if (Date.now() - lastMessageTime > 5000) {
+    document.getElementById("status").style.color = "red";
+    document.getElementById("status").innerText = "OFFLINE";
+  }
+}, 1000);
+
+function animate() {
+  requestAnimationFrame(animate);
+  renderer.render(scene, camera);
+}
+</script>
+
+</body>
+</html>
